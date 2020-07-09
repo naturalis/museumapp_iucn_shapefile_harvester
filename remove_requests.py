@@ -12,10 +12,18 @@ IUCN_BASE_URL = os.getenv("IUCN_BASE_URL")
 IUCN_ACCOUNT_URL = os.getenv("IUCN_ACCOUNT_URL")
 DEBUG = os.getenv("DEBUG")=="True"
 
-logger = logclass.LogClass("iucn request remover","iucn_download.log")
+logfile = "log/iucn_request_remover.log"
+
+logger = logclass.LogClass("iucn request remover",logfile)
 
 if DEBUG==True:
     logger.info("running in test mode (.env file: DEBUG=True)")
+
+always_delete = False
+
+if len(sys.argv)>1:
+    always_delete = (sys.argv[1]=="always_delete")
+    logger.info("always_delete set to {}".format(always_delete))
 
 iucn = iucn_navigator.IucnNavigator()
 
@@ -43,7 +51,7 @@ iucn.open_url()
 
 logger.info("removing download links")
 
-iucn.remove_download_links()
+iucn.remove_download_links(always_delete)
 
 logger.info("done")
 

@@ -3,7 +3,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from lib import iucn_navigator, database, logclass
 
-# python create_download_links.py input/taxon_list.csv
+# python create_download_links.py input/taxon_list.csv 0 citations_only
 # input file either "name","id" or just "name"
 
 try:
@@ -17,6 +17,10 @@ try:
 except Exception as e:
     limit = 0
 
+try:
+    citations_only = (sys.argv[3]=="citations_only")
+except Exception as e:
+    citations_only = False
 
 load_dotenv()
 
@@ -33,17 +37,20 @@ IUCN_SPECIES_BY_NAME_URL = os.getenv("IUCN_SPECIES_BY_NAME_URL")
 IUCN_TOKEN = os.getenv("IUCN_TOKEN")
 DEBUG = os.getenv("DEBUG")=="True"
 
-logger = logclass.LogClass("iucn download requester","iucn_download.log")
+
+logfile = "log/iucn_download.log"
+
+logger = logclass.LogClass("iucn download requester",logfile)
+logger.info("logging to {}".format(logfile))
 
 if DEBUG==True:
     logger.info("running in test mode (.env file: DEBUG=True)")
 
 logger.info("input file: {}".format(infile))
 logger.info("taxon limit: {}".format(limit))
-
-
+logger.info("citations_only: {}".format(citations_only))
 logger.info("firefox profile path: {}".format(FIREFOX_PROFILE_PATH))
-logger.info("download folder: {}".format(DOWNLOAD_FOLDER))
+# logger.info("download folder: {}".format(DOWNLOAD_FOLDER))
 logger.info("download request notice: {}".format(DOWNLOAD_REQUEST_NOTICE))
 
 
@@ -88,7 +95,6 @@ with open(infile, 'r') as csvfile:
 
 logger.info("read {} lines, of which {} were previously requested".format(len(taxa),requested_previous))
 
-
 iucn = iucn_navigator.IucnNavigator()
 
 iucn.set_debug(DEBUG)
@@ -97,7 +103,6 @@ iucn.set_profile_path(FIREFOX_PROFILE_PATH)
 iucn.init_driver()
 iucn.set_credentials(IUCN_USERNAME,IUCN_PASSWORD)
 iucn.set_download_notice(DOWNLOAD_REQUEST_NOTICE)
-
 iucn.set_url(IUCN_BASE_URL)
 iucn.open_url()
 iucn.do_login()
@@ -126,8 +131,15 @@ if infile_style=="name":
 
 processed = 0
 scheduled = 0
+harvested_citations = 0
 
 logger.info("finding download links")
+
+timestamp = str(datetime.fromtimestamp(datetime.timestamp(datetime.now())))
+
+if citations_only:
+    logger.debug("harvesting only citations; not clicking any download links")
+    iucn.set_implicit_wait(3)
 
 for sp in taxa:
     try:
@@ -135,16 +147,28 @@ for sp in taxa:
             logger.debug("skipping {} (download previously requested)".format(sp["name"]))
             continue
 
+        iucn.set_taxon(sp["name"]) # for debugging
         iucn.set_url(IUCN_SPECIES_URL.format(sp["iucn_id"]))
         iucn.open_url()
 
         is_species_page = iucn.check_species_page()
 
         if is_species_page:
-            iucn.do_shapefile_download_click()
-            logger.info("scheduled for download: {}".format(sp["name"]))
-            db.save_download_request(sp["name"],str(datetime.fromtimestamp(datetime.timestamp(datetime.now()))))
-            scheduled = scheduled + 1
+
+            if not citations_only:
+                iucn.do_shapefile_download_click()
+                logger.info("scheduled for download: {}".format(sp["name"]))
+                db.save_download_request(sp["name"],timestamp)
+                scheduled = scheduled + 1
+
+            citation = iucn.harvest_citation()
+            if citation:
+                db.save_citation(sp["name"],citation,timestamp)
+                logger.info("harvested citation {}: {}".format(sp["name"],citation[0:25] + ' ... ' + citation[-15:]))
+                harvested_citations = harvested_citations + 1
+            else:
+                logger.info("found no citation for {}".format(sp["name"]))
+
         else:
             iucn.set_url(IUCN_SYNONYM_URL.format(sp["name"],IUCN_TOKEN))
             iucn.open_url()
@@ -157,17 +181,30 @@ for sp in taxa:
                 if not iucn.check_species_page():
                     raise Exception("resolved synonym, but resolved ID led nowhere (!?)")
                 else:
-                    iucn.do_shapefile_download_click()
-                    logger.info("scheduled for download: {} (by synonym {})".format(syn["name"],sp["name"]))
-                    db.save_download_request(syn["name"],str(datetime.fromtimestamp(datetime.timestamp(datetime.now()))),sp["name"])
-                    scheduled = scheduled + 1
+                    if not citations_only:
+                        iucn.do_shapefile_download_click()
+                        logger.info("scheduled for download: {} (by synonym {})".format(syn["name"],sp["name"]))
+                        db.save_download_request(syn["name"],timestamp,sp["name"])
+                        scheduled = scheduled + 1
+
+                    citation = iucn.harvest_citation()
+                    if citation:
+                        db.save_citation(sp["name"],citation,timestamp)
+                        logger.info("harvested citation {} (by synonym {}): {}".
+                            format(
+                                syn["name"],
+                                sp["name"],
+                                citation[0:25] + ' ... ' + citation[-15:]
+                            )
+                        )
+                        harvested_citations = harvested_citations + 1
 
     except Exception as e:
         logger.info("failed {} ({})".format(sp["name"],str(e).strip()))
 
     processed = processed + 1
 
-    if limit > 0 and scheduled >= limit:
+    if limit > 0 and ((scheduled >= limit) or (harvested_citations >= limit)):
         logger.info("reached limit {}".format(limit))
         break
 

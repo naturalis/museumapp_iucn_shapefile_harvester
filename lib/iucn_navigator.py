@@ -20,8 +20,11 @@ class IucnNavigator:
     logger = None
     previous_downloads = []
     synonyms = []
+    have_skipped = []
     batch_size = 100
     downloaded = 0
+    implicit_wait = None
+    taxon = None
 
     def __init__(self):
         pass
@@ -73,7 +76,17 @@ class IucnNavigator:
         self.url = url
 
 
+    def set_implicit_wait(self,implicit_wait):
+        self.implicit_wait = implicit_wait
+
+
+    def set_taxon(self,taxon):
+        self.taxon = taxon
+
+
     def open_url(self):
+        if self.implicit_wait:
+            self.driver.implicitly_wait(self.implicit_wait) # seconds
         self.driver.get(self.url)
 
 
@@ -81,7 +94,7 @@ class IucnNavigator:
         profile = webdriver.FirefoxProfile(self.firefox_profile_path)
         if not self.download_folder == None:
             profile.set_preference("browser.download.dir", self.download_folder)
-        self.driver = webdriver.Firefox(profile)
+        self.driver = webdriver.Firefox(profile,log_path="./log/geckodriver.log")
 
 
     def do_login(self):
@@ -174,7 +187,6 @@ class IucnNavigator:
 
 
     def click_download_links(self):
-
         self.logger.info("download batch size {}".format(self.batch_size))
 
         self.downloads = []
@@ -266,32 +278,51 @@ class IucnNavigator:
             return False
 
 
-    def remove_download_links(self):
+    def harvest_citation(self):
+        try:
+            citation = ""
+            tags = self.driver.find_elements_by_xpath("//*[contains(text(), 'The IUCN Red List of Threatened Species.')]")
+            for tag in tags:
+                if tag.tag_name=="small":
+                    citation = tag.text
 
-        element = self.driver.find_element_by_xpath("/html/body/div[2]/div[2]/main/div/div[2]/div/div/article[2]/header/ol")
+            return citation
+        except Exception as e:
+            logger.info("failed citation for {} ({})".format(self.taxon,str(e).strip()))
+            return False
 
-        lis = element.find_elements_by_tag_name("li")
-        for li in lis:
 
-            subdivs = li.find_elements_by_tag_name("div")
+    def remove_download_links(self,always_delete=False):
+        running = True
 
-            tmp = subdivs[0].text.split("\n")
-            taxon = tmp[1].replace("Description:","").strip()
+        while running:
 
-            if not self.was_downloaded_previously(taxon):
-                self.logger.info("skipping {} (not yet downloaded)".format(taxon))
-                continue
+            try:
+                element = self.driver.find_element_by_xpath("//*[contains(text(), 'Saved downloads')]/../ol")
+                li = element.find_element_by_tag_name("li")
+                subdivs = li.find_elements_by_tag_name("div")
+                tmp = subdivs[0].text.split("\n")
+                taxon = tmp[1].replace("Description:","").strip()
 
-            button = subdivs[3].find_element_by_class_name("button--secondary")
-            button.click()
-            alert = self.driver.switch_to_alert()
+                if not always_delete and not self.was_downloaded_previously(taxon) and not taxon in self.have_skipped:
+                    self.logger.info("skipping {} (not yet downloaded)".format(taxon))
+                    self.have_skipped.push(taxon)
+                    continue
 
-            if not self.debug:
-                alert.accept()
-                time.sleep(1)
-                self.logger.info("removed request for {}".format(taxon))
-            else:
-                alert.dismiss()
-                self.logger.info("skipped actual removal of {} (debug mode)".format(taxon))
+                button = subdivs[3].find_element_by_class_name("button--secondary")
+                button.click()
+                alert = self.driver.switch_to_alert()
 
+                if not self.debug:
+                    alert.accept()
+                    time.sleep(1)
+                    self.logger.info("removed request for {}".format(taxon))
+                else:
+                    alert.dismiss()
+                    self.logger.info("skipped actual removal of {} (debug mode)".format(taxon))
+                    running = False
+
+            except Exception as e:
+                # print(str(e))
+                running = False
 

@@ -1,5 +1,0 @@
-taxon_filename	taxon_shape_file	legend	citation	year
-caracal caracal	Caracal caracal	Extant (resident)	IUCN (International Union for Conservation of Nature)	2016
-caracara plancus	Caracara plancus	Extant (resident)	BirdLife International and Handbook of the Birds of the World (2016)	2014
-capreolus capreolus	Capreolus capreolus	Extant (resident)	IUCN (International Union for Conservation of Nature)	2016
-capreolus capreolus	Capreolus capreolus	Extant (resident)	IUCN (International Union for Conservation of Nature)	2016

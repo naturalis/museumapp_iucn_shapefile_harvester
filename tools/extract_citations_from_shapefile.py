@@ -38,22 +38,23 @@ except Exception as e:
 tmp_dir="tmp"
 
 
-
+lines = []
 
 
 def print_line(d):
     format_line="{filename}\t{taxon_filename}\t{taxon_shape_file}\t{legend}\t{citation}\t{year}"
     format_line="{taxon_filename}\t{taxon_shape_file}\t{legend}\t{citation}\t{year}"
     print(format_line.format(**d))
+    lines.append({ 'year': int(float(d['year'])), 'line': format_line.format(**d) })
 
 
-print_line({
-    'filename':'filename', 
-    'taxon_filename':'taxon_filename',
-    'taxon_shape_file':'taxon_shape_file', 
-    'legend':'legend', 
-    'citation':'citation', 
-    'year':'year'})
+# print_line({
+#     'filename':'filename', 
+#     'taxon_filename':'taxon_filename',
+#     'taxon_shape_file':'taxon_shape_file', 
+#     'legend':'legend', 
+#     'citation':'citation', 
+#     'year':'year'})
 
 for filename in os.listdir(directory):
     if filename.endswith(".zip"): 
@@ -77,9 +78,9 @@ for filename in os.listdir(directory):
         except Exception as e:
             print("ERROR: {} {}".format(filename,e))
 
-
-
-
+        
+        lines.sort(key=lambda x: x['year'], reverse=False)
+        print(lines)
 
 
 
